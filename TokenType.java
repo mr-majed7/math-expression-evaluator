@@ -40,22 +40,22 @@ public enum TokenType {
      */
     @Override
     public String toString() {
-        switch (this.ordinal()) {
-            case 0:
+        switch (this) {
+            case ADD:
                 return "+";
-            case 1:
+            case SUB:
                 return "-";
-            case 2:
+            case MUL:
                 return "*";
-            case 3:
+            case DIV:
                 return "/";
-            case 4:
+            case POW:
                 return "^";
-            case 5:
+            case LPAR:
                 return "(";
-            case 6:
+            case RPAR:
                 return ")";
-            case 7:
+            case VALUE:
                 return this.name();
             default:
                 return "null";
