@@ -27,22 +27,29 @@ public class Scanner {
         List<ScannedToken> scannedExpr = new ArrayList<>();
 
         for (char c : expression.toCharArray()) {
-            TokenType type = TokenType.fromString(new String(new char[]{c}));
-            if (!type.equals(TokenType.VALUE)) {
+            TokenType type = TokenType.fromString(String.valueOf(c));
+            
+            if (type != TokenType.VALUE) {
+                // If we have accumulated a number, add it first
                 if (value.length() > 0) {
-                    ScannedToken st = new ScannedToken(value.toString(), TokenType.VALUE);
-                    scannedExpr.add(st);
+                    scannedExpr.add(new ScannedToken(value.toString(), TokenType.VALUE));
                     value = new StringBuilder();
-                } else {
-                    value.append(new String(new char[]{c}));
+                }
+                // Add the operator/parenthesis token
+                scannedExpr.add(new ScannedToken(String.valueOf(c), type));
+            } else {
+                // If it's a digit or decimal point, accumulate it
+                if (Character.isDigit(c) || c == '.') {
+                    value.append(c);
                 }
             }
-            if (value.length() > 0) {
-                ScannedToken st = new ScannedToken(value.toString(), TokenType.VALUE);
-                scannedExpr.add(st);
-                value = new StringBuilder();
-            }
         }
+        
+        // Don't forget to add any remaining number
+        if (value.length() > 0) {
+            scannedExpr.add(new ScannedToken(value.toString(), TokenType.VALUE));
+        }
+        
         return scannedExpr;
     }
 
@@ -57,34 +64,50 @@ public class Scanner {
             return Double.parseDouble(tokenizedExpr.get(0).expression());
         }
         List<ScannedToken> simpleExpr = new ArrayList<>();
-        int idx = tokenizedExpr.stream().
-                map(ScannedToken::type).
-                collect(Collectors.toList()).
-                lastIndexOf(TokenType.LPAR);
-        int matchingPar = -1;
-        if (idx > 0) {
+        int idx = tokenizedExpr.stream()
+                .map(ScannedToken::type)
+                .collect(Collectors.toList())
+                .lastIndexOf(TokenType.LPAR);
+        
+        if (idx >= 0) {
+            // Find matching closing parenthesis
+            int matchingPar = -1;
             for (int i = idx + 1; i < tokenizedExpr.size(); i++) {
                 ScannedToken curr = tokenizedExpr.get(i);
                 if (curr.type() == TokenType.RPAR) {
                     matchingPar = i;
                     break;
-                } else {
-                    simpleExpr.add(tokenizedExpr.get(i));
                 }
             }
-        } else {
-            simpleExpr.addAll(tokenizedExpr);
-            return evaluateSimpleExpression(tokenizedExpr);
+            
+            if (matchingPar != -1) {
+                // Extract the expression inside parentheses
+                for (int i = idx + 1; i < matchingPar; i++) {
+                    simpleExpr.add(tokenizedExpr.get(i));
+                }
+                
+                // Evaluate the expression inside parentheses
+                double value = evaluateSimpleExpression(simpleExpr);
+                
+                // Create new expression with the evaluated value
+                List<ScannedToken> newExpr = new ArrayList<>();
+                // Add everything before the opening parenthesis
+                for (int i = 0; i < idx; i++) {
+                    newExpr.add(tokenizedExpr.get(i));
+                }
+                // Add the evaluated value
+                newExpr.add(new ScannedToken(Double.toString(value), TokenType.VALUE));
+                // Add everything after the closing parenthesis
+                for (int i = matchingPar + 1; i < tokenizedExpr.size(); i++) {
+                    newExpr.add(tokenizedExpr.get(i));
+                }
+                
+                return evaluate(newExpr);
+            }
         }
-        double value = evaluateSimpleExpression(simpleExpr);
-        List<ScannedToken> partiallyEvalExper = new ArrayList<>();
-
-        for (int i = 0; i < idx; i++) {
-            partiallyEvalExper.add(tokenizedExpr.get(i));
-        }
-        partiallyEvalExper.add(new ScannedToken(Double.toString(value), TokenType.VALUE));
-        System.out.println(partiallyEvalExper);
-        return evaluate(partiallyEvalExper);
+        
+        // If no parentheses found or invalid expression, evaluate as simple expression
+        return evaluateSimpleExpression(tokenizedExpr);
     }
 
     /**
