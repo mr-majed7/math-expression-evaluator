@@ -1,86 +1,124 @@
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Parser class for mathematical expressions.
- * This class takes a list of scanned tokens and processes them to handle special cases
- * like negative numbers and ensures proper token ordering for evaluation.
+ * This class takes a list of scanned tokens and builds an expression tree
+ * that represents the mathematical expression with proper operator precedence.
+ * The tree can then be evaluated by traversing it in-order.
  */
 public class Parser {
-    private final List<ScannedToken> expression;
+    private final List<ScannedToken> tokens;
+    private int currentTokenIndex;
 
     /**
      * Creates a new Parser instance with the given tokenized expression.
-     * @param expression List of ScannedToken objects representing the tokenized mathematical expression
+     * @param tokens List of ScannedToken objects representing the tokenized mathematical expression
      */
-    public Parser(List<ScannedToken> expression) {
-        this.expression = expression;
+    public Parser(List<ScannedToken> tokens) {
+        this.tokens = tokens;
+        this.currentTokenIndex = 0;
     }
 
     /**
-     * Parses the tokenized expression to handle special cases and prepare for evaluation.
-     * Main responsibilities:
-     * 1. Identifies and processes negative numbers (e.g., "-5" or "(-3)")
-     * 2. Creates new tokens for negative values
-     * 3. Maintains proper token ordering for evaluation
-     * 
-     * @return List of ScannedToken objects with processed negative numbers and proper ordering
+     * Parses the tokenized expression into an expression tree.
+     * @return The root node of the expression tree
+     * @throws ExpressionException if the expression is invalid
      */
-    public List<ScannedToken> parse() {
-        // Track token types for context-aware processing
-        TokenType prev = null;
-        TokenType curr = null;
-        TokenType next = null;
+    public ExpressionNode parse() throws ExpressionException {
+        if (tokens.isEmpty()) {
+            throw new ExpressionException(ExpressionException.ErrorType.EMPTY_EXPRESSION, 0);
+        }
+        return parseExpression();
+    }
 
-        // Lists to store processed tokens and track modifications
-        List<ScannedToken> properlyParsedExpr = new ArrayList<>();
-        List<TokenType> types = expression.stream().map(ScannedToken::type).collect(Collectors.toList());
-        List<Integer> indexes = new ArrayList<>();  // Tracks positions of negative numbers
-        List<ScannedToken> negativeValues = new ArrayList<>();  // Stores processed negative values
+    /**
+     * Parses an expression, handling operator precedence.
+     * Uses the shunting yard algorithm to build the expression tree.
+     */
+    private ExpressionNode parseExpression() throws ExpressionException {
+        return parseBinaryExpression(0);
+    }
 
-        // First pass: Identify and process negative numbers
-        for (int i = 0; i < types.size() - 1; i++) {
-            prev = i == 0 ? null : types.get(i - 1);
-            curr = types.get(i);
-            next = i < types.size() - 1 ? types.get(i + 1) : null;
+    /**
+     * Parses a binary expression with a given minimum precedence.
+     * This implements the precedence climbing method for building the expression tree.
+     */
+    private ExpressionNode parseBinaryExpression(int minPrecedence) throws ExpressionException {
+        ExpressionNode left = parseUnaryExpression();
 
-            // Case 1: Negative number at start of expression (e.g., "-5")
-            if (prev == null && curr == TokenType.SUB && next == TokenType.VALUE) {
-                ScannedToken negativeValue = new ScannedToken("" + (-1 * Double.parseDouble(expression.get(i + 1).
-                        expression())), TokenType.VALUE);
-                System.out.println("new token at index " + i);
-                indexes.add(i);
-                negativeValues.add(negativeValue);
-            } 
-            // Case 2: Negative number after opening parenthesis (e.g., "(-3)")
-            else if (prev == TokenType.LPAR && curr == TokenType.SUB && next == TokenType.VALUE) {
-                ScannedToken negativeValue =
-                        new ScannedToken("" + (-1 * Double.parseDouble(expression.get(i + 1).expression())),
-                                TokenType.VALUE);
-                System.out.println("new token at index " + i);
-                indexes.add(i);
-                negativeValues.add(negativeValue);
+        while (currentTokenIndex < tokens.size()) {
+            ScannedToken token = tokens.get(currentTokenIndex);
+            if (token.type() != TokenType.ADD && token.type() != TokenType.SUB &&
+                token.type() != TokenType.MUL && token.type() != TokenType.DIV &&
+                token.type() != TokenType.POW) {
+                break;
+            }
+
+            int precedence = getOperatorPrecedence(token.type());
+            if (precedence < minPrecedence) {
+                break;
+            }
+
+            currentTokenIndex++;
+            ExpressionNode right = parseBinaryExpression(precedence + 1);
+            left = new ExpressionNode(token.type(), left, right);
+        }
+
+        return left;
+    }
+
+    /**
+     * Parses a unary expression (e.g., negative numbers).
+     */
+    private ExpressionNode parseUnaryExpression() throws ExpressionException {
+        if (currentTokenIndex >= tokens.size()) {
+            throw new ExpressionException(ExpressionException.ErrorType.INVALID_EXPRESSION, currentTokenIndex);
+        }
+
+        ScannedToken token = tokens.get(currentTokenIndex);
+        
+        if (token.type() == TokenType.SUB) {
+            currentTokenIndex++;
+            ExpressionNode operand = parseUnaryExpression();
+            return new ExpressionNode(TokenType.SUB, operand);
+        }
+        
+        if (token.type() == TokenType.LPAR) {
+            currentTokenIndex++;
+            ExpressionNode expr = parseExpression();
+            
+            if (currentTokenIndex >= tokens.size() || tokens.get(currentTokenIndex).type() != TokenType.RPAR) {
+                throw new ExpressionException(ExpressionException.ErrorType.UNMATCHED_PARENTHESES, currentTokenIndex);
+            }
+            currentTokenIndex++;
+            return expr;
+        }
+        
+        if (token.type() == TokenType.VALUE) {
+            try {
+                double value = Double.parseDouble(token.expression());
+                currentTokenIndex++;
+                return new ExpressionNode(value);
+            } catch (NumberFormatException e) {
+                throw new ExpressionException(ExpressionException.ErrorType.INVALID_NUMBER, currentTokenIndex, token.expression());
             }
         }
 
-        // Second pass: Build final expression with processed negative numbers
-        int maxIter = expression.size();
-        int i = 0;
-        int j = 0;
-        while (i < maxIter) {
-            if (indexes.contains(i) && j < negativeValues.size()) {
-                // Insert processed negative value
-                properlyParsedExpr.add(negativeValues.get(j));
-                i++;
-                j++;
-            } else {
-                // Keep original token
-                properlyParsedExpr.add(expression.get(i));
-            }
-            i++;
+        throw new ExpressionException(ExpressionException.ErrorType.INVALID_EXPRESSION, currentTokenIndex);
+    }
+
+    /**
+     * Gets the precedence of an operator.
+     * Higher values indicate higher precedence.
+     */
+    private int getOperatorPrecedence(TokenType operator) {
+        switch (operator) {
+            case POW: return 3;
+            case MUL:
+            case DIV: return 2;
+            case ADD:
+            case SUB: return 1;
+            default: return 0;
         }
-        System.out.println(properlyParsedExpr);
-        return properlyParsedExpr;
     }
 }
